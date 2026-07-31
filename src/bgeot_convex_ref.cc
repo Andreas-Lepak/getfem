@@ -197,7 +197,7 @@ namespace bgeot {
   (pconvex_structure cvs_, bool auto_basic_) :
     convex<base_node>(move(cvs_)), basic_convex_ref_(0),
     auto_basic(auto_basic_) {
-    DAL_STORED_OBJECT_DEBUG_CREATED(this, "convex of refrence");
+    DAL_STORED_OBJECT_DEBUG_CREATED(this, "convex of reference");
     psimplexified_convex = std::make_shared<mesh_structure>();
     // dal::singleton<cleanup_simplexified_convexes>::instance()
     //        .push_back(psimplexified_convex);

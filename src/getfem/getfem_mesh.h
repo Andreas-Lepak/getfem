@@ -346,7 +346,7 @@ namespace getfem {
         @param f the face number.
         @param pt the point at which the normal is taken, in the
         reference convex. This point should of course be on the
-        correspounding face of the reference convex, except if the
+        corresponding face of the reference convex, except if the
         geometric transformation is linear: in that case, the normal
         constant.
         @return the face normal.

@@ -84,7 +84,7 @@ namespace bgeot {
        the convex.
 
        - a pointer to the "basic convex_ref": for a convex_ref of
-       degree k, this is a pointer to the correspounding convex_ref of
+       degree k, this is a pointer to the corresponding convex_ref of
        degree 1.
    */
   class convex_of_reference : virtual public dal::static_stored_object,

@@ -804,7 +804,7 @@ namespace getfem {
   /* It is guaranted (and used) that the sub-element of index 0 is the    */
   /* element itself and the faces follows in their usual order.           */
   /* It has also to be guaranted that the internal degrees of freedom are */
-  /* first. This is ensred by the dof enumeration of mesh_fem object      */
+  /* first. This is ensured by the dof enumeration of mesh_fem object     */
   /* since the interior element has the index 0.                          */
   
   pfem hho_method(fem_param_list &params,

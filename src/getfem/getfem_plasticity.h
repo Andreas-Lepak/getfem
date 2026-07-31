@@ -429,7 +429,7 @@ namespace getfem {
 
   /** This function permits to update the state variables for a finite
       strain elastoplasticity brick, based on the current displacements
-      and plastic multiplier fields (optionally also the the pressure field
+      and plastic multiplier fields (optionally also the pressure field
       in the case of a mixed displacement-pressure formulation).
       The parameters have to be exactly the same as the ones of the
      `add_finite_strain_elastoplasticity_brick`, so see the documentation

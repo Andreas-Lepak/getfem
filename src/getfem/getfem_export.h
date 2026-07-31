@@ -129,7 +129,7 @@ namespace getfem {
     template<class VECT> void write_cell_data(const VECT& U,
                                               const std::string& name,
                                               size_type qdim = 1);
-    /** export a data_set correspounding to measures of quality for each convex
+    /** export a data_set corresponding to measures of quality for each convex
         of the supplied mesh (which should have the same number of convex than
         the one used in the vtk_export)
 

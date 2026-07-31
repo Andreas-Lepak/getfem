@@ -482,7 +482,7 @@ namespace bgeot {
     void permute(const std::vector<dim_type> p, bool revert=false) {
       std::vector<dim_type> invp(ndim()); std::fill(invp.begin(), invp.end(), dim_type(-1));
 
-      /* build the inverse permutation and check that this IS really a permuation */
+      /* build the inverse permutation and check that this IS really a permutation */
       for (dim_type i=0; i < p.size(); ++i) {
         if (p[i] != dim_type(-1)) {
           assert(invp[p[i]] == dim_type(-1));

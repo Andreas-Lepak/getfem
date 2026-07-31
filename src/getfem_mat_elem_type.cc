@@ -84,7 +84,7 @@ namespace getfem {
     return p;
   }
 
-  /* on destruction, all occurences of the nonlinear term are removed
+  /* on destruction, all occurrences of the nonlinear term are removed
      from the mat_elem_type cache; */
   nonlinear_elem_term::~nonlinear_elem_term() {
     for (std::set<pmat_elem_type>::iterator it=melt_list.begin();

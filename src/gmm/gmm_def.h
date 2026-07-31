@@ -275,7 +275,7 @@ namespace gmm {
   { return const_cast<typename cref_type<L>::return_type>(l); }
 
 
-  // To be used to select between a reference or a const refercence for
+  // To be used to select between a reference or a const reference for
   // the return type of a function
   // select_return<C1, C2, L *> return C1 if L is a const reference,
   //                                   C2 otherwise.
@@ -295,7 +295,7 @@ namespace gmm {
   };
 
   
-  // To be used to select between a reference or a const refercence inside
+  // To be used to select between a reference or a const reference inside
   // a structure or a linagl_traits
   // select_ref<C1, C2, L *> return C1 if L is a const reference,
   //                                C2 otherwise.

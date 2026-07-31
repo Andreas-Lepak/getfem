@@ -730,7 +730,7 @@ namespace getfem {
   /** A default solver for the model brick system.
   Of course it could be not very well suited for a particular
   problem, so it could be copied and adapted to change solvers,
-  add a special traitement on the problem, etc ...  This is in
+  add a special treatment on the problem, etc ...  This is in
   fact a model for your own solver.
 
   For small problems, a direct solver is used (gmm::SuperLU_solve),

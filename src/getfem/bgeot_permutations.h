@@ -36,7 +36,7 @@ namespace bgeot {
 
      based on algorithms detailed in "Ranking and Unranking Permutations in linear time", W. Myrvold, F. Ruskey 
      ( http://www.csr.uvic.ca/~fruskey/Publications/RankPerm.html )
-     note that this is not lexigraphical order, and to_rank(0) != {0,1,2,3,...} (it is {1,2,3,...,n,0})
+     note that this is not lexicographical order, and to_rank(0) != {0,1,2,3,...} (it is {1,2,3,...,n,0})
 
      however, the reset(), finished(), and ++ operator are based on the lexicagraphical ordering
    */

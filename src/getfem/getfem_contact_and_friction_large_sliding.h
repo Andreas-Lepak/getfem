@@ -107,7 +107,7 @@ namespace getfem {
   /** Adds a large sliding contact with friction brick to the model.
       This brick is able to deal with self-contact, contact between
       several deformable bodies and contact with rigid obstacles.
-      It takes a variable of type multi_contact_frame wich describe
+      It takes a variable of type multi_contact_frame which describes
       the contact situation (master and slave contact boundaries,
       self-contact detection or not, and a few parameter).
       For each slave boundary (and also master boundaries if self-contact

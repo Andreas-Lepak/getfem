@@ -1521,7 +1521,7 @@ namespace getfem {
         method should not modify any data simultaneously accessible from
         multiple threads. In case this is unavoidable, the race can be
         prevented by distributing this data (of type T) between the threads
-        via getfem::omp_distribute<T> (prefered method) or
+        via getfem::omp_distribute<T> (preferred method) or
         protected from concurrent access with mutexes (e.g. getfem::omp_lock)
         or OpenMP critical section. */
     virtual void asm_real_tangent_terms(const model &, size_type,
@@ -1532,7 +1532,7 @@ namespace getfem {
                                         model::real_veclist &,
                                         model::real_veclist &,
                                         size_type, build_version) const
-    { /** doesn't have to be overriden if serial pre- post- assemblies are
+    { /** doesn't have to be overridden if serial pre- post- assemblies are
           defined */
     }
 
@@ -1547,7 +1547,7 @@ namespace getfem {
         method should not modify any data simultaneously accessible from
         multiple threads. In case this is unavoidable, the race can be
         prevented by distributing this data (of type T) between the threads
-        via getfem::omp_distribute<T> (prefered method) or
+        via getfem::omp_distribute<T> (preferred method) or
         protected from concurrent access with mutexes (e.g. getfem::omp_lock)
         or OpenMP critical section. */
     virtual void asm_complex_tangent_terms(const model &, size_type,
@@ -1558,7 +1558,7 @@ namespace getfem {
                                            model::complex_veclist &,
                                            model::complex_veclist &,
                                            size_type, build_version) const
-    { /** doesn't have to be overriden if serial pre- post- assemblies are
+    { /** doesn't have to be overridden if serial pre- post- assemblies are
           defined*/
     }
 
@@ -2529,7 +2529,7 @@ namespace getfem {
       parameter $rho$ is the density which could be omitted (the defaul value
       is 1). This brick should be used in addition to a time dispatcher for the
       other terms. The time derivative $v$ of the variable $u$ is preferably
-      computed as a post-traitement which depends on each scheme.
+      computed as a post-treatment which depends on each scheme.
   */
   size_type APIDECL add_basic_d2_on_dt2_brick
   (model &md, const mesh_im &mim, const std::string &varnameU,

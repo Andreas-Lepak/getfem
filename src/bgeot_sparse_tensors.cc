@@ -731,13 +731,13 @@ namespace bgeot {
     GMM_ASSERT2(trtab.size() <= 32, "wow it was assumed that nobody would "
                                     "ever need a reduction on more than 32 tensors..");
 
-    std::vector<std::bitset<32> > idx_occurences(reduction_chars.size());
+    std::vector<std::bitset<32> > idx_occurrences(reduction_chars.size());
 
     for (unsigned ir=0; ir < reduction_chars.size(); ++ir) {
       char c = reduction_chars[ir];
       for (unsigned tnum=0; tnum < trtab.size(); ++tnum)
-        idx_occurences[ir][tnum] = (trtab[tnum].ridx.find(c) != std::string::npos);
-      //cout << "find_best_reduction: idx_occurences[" << ir << "] = " << idx_occurences[ir] << "\n";
+        idx_occurrences[ir][tnum] = (trtab[tnum].ridx.find(c) != std::string::npos);
+      //cout << "find_best_reduction: idx_occurrences[" << ir << "] = " << idx_occurrences[ir] << "\n";
     }
     size_type best_redsz = 100000000;
     for (unsigned ir=0; ir < reduction_chars.size(); ++ir) {
@@ -746,7 +746,7 @@ namespace bgeot {
       /* add other possible reductions */
       for (unsigned ir2=0; ir2 < reduction_chars.size(); ++ir2) {
         if (ir2 != ir) {
-          if ((idx_occurences[ir2] | idx_occurences[ir]) == idx_occurences[ir]) {
+          if ((idx_occurrences[ir2] | idx_occurrences[ir]) == idx_occurrences[ir]) {
             lst.add(ir2);
             idxset.push_back(reduction_chars[ir2]);
           }
@@ -755,7 +755,7 @@ namespace bgeot {
       /* evaluate the cost */
       size_type redsz = 1;
       for (unsigned tnum=0; tnum < trtab.size(); ++tnum) {
-        if (!idx_occurences[ir][tnum])
+        if (!idx_occurrences[ir][tnum])
           continue;
         std::bitset<int(32)> once((int)reduction_chars.size());
         for (dim_type i=0; i < trtab[tnum].tr().ndim(); ++i) {
@@ -775,7 +775,7 @@ namespace bgeot {
         best_redsz = redsz;
         best_lst.clear();
         for (unsigned i=0; i < trtab.size(); ++i)
-          if (idx_occurences[ir][i]) best_lst.add(i);
+          if (idx_occurrences[ir][i]) best_lst.add(i);
         best_idxset = idxset;
       }
     }

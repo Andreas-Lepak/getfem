@@ -4791,7 +4791,7 @@ namespace getfem {
     const fem_interpolation_context &ctx;
     const im_data *imd;
     virtual int exec() {
-      GA_DEBUG_INFO("Instruction: Assignement to im_data");
+      GA_DEBUG_INFO("Instruction: Assignment to im_data");
       imd->set_tensor(V, ctx.convex_num(), ctx.ii(), t);
       return 0;
     }

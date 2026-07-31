@@ -63,7 +63,7 @@ namespace getfem {
     pts_in_cvx.resize(nbcvx);
     ref_coords.resize(nbpts);
 
-    // ephemeral data containters
+    // ephemeral data containers
     std::vector<size_type> cvx_of_pt(nbpts);
     std::vector<double> dist(nbpts);
     dal::bit_vector remaining_pts, cv_on_bound;

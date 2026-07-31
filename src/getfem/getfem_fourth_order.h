@@ -464,7 +464,7 @@ namespace getfem {
       the right hand side of the Dirichlet condition.
       If `R_must_be_derivated` is set to `true` then the normal
       derivative of `dataname` is considered.
-      Note that is is possible to change the penalization coefficient
+      Note that it is possible to change the penalization coefficient
       using the function `getfem::change_penalization_coeff` of the standard
       Dirichlet condition.
   */

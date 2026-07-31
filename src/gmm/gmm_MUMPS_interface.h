@@ -142,7 +142,7 @@ namespace gmm {
     ij_sparse_matrix(const L& A, bool lower_triangular=false,
                      const std::vector<size_type> &rows=no_sel,
                      const std::vector<size_type> &cols=no_sel)
-    { // do not reserve nnz(A) entires in case only a sub-matrix is used
+    { // do not reserve nnz(A) entries in case only a sub-matrix is used
       //size_type nz = nnz(A);
       //irn.reserve(nz); jcn.reserve(nz); a.reserve(nz);
       build_from(A, typename principal_orientation_type
