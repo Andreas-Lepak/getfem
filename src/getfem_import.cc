@@ -976,7 +976,10 @@ namespace getfem {
     base_node pt(3);
     for (size_type i=0; i < size_type(-1); ++i) {
       size_type nodeid;
-      std::getline(f,line);
+      if (!std::getline(f, line))       // EOF or read failure
+        break;
+      if (!line.empty() && line.back() == '\r')
+        line.pop_back();                // strip Windows line ending
       if (line.compare(0,1,"N") == 0 || line.compare(0,1,"!") == 0)
         break;
       //       1       0       0-3.0000000000000E+00 2.0000000000000E+00 1.0000000000000E+00
