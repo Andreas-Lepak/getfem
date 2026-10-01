@@ -1237,30 +1237,25 @@ build_sub_command_table(std::map<std::string, psub_command> &subc_tab) {
      exp.write_mesh(); if (write_q) exp.write_mesh_quality(*pmesh);
      );
 
-  /*@GET ('export to exodus', @str filename, ... ['region field']['uncompressed']['compress']['region names', @ivec ids, @list names])
+  /*@GET ('export to exodus', @str filename, ... ['region field']['uncompressed']['region names', @ivec ids, @list names])
     Exports a mesh to an Exodus II file (requires GetFEM built with
     --enable-exodus).
 
-    With "'region names', ids, names" the Exodus blocks/side sets/element
-    sets/node sets matching those region ids are named accordingly. Without it,
-    region blocks are named ``region_<id>`` and set names are left empty. Pass
+    GetFEM regions become Exodus side sets, element sets and node sets, named
+    accordingly when "'region names', ids, names" is given (region blocks are
+    named ``region_<id>`` and set names left empty otherwise). Pass
     'region field' to also write a ``region`` element variable holding each
-    element's block id (for colouring by id).
-    Files are written compressed (NetCDF4 classic-model) by default when GetFEM
-    was built with usable NetCDF4/HDF5 deflate support; otherwise they default
-    to classic 64-bit-offset output. Pass 'uncompressed' to force classic output.
-
-    See also MESH_FEM:GET('export to exodus').@*/
-#ifdef GETFEM_HAVE_EXODUS
+    element's block id. See also MESH_FEM:GET('export to exodus').@*/
   sub_command
     ("export to exodus", 1, -1, 0, 1,
      std::string fname = in.pop().to_string();
-     getfem::exodus_export exp(fname);
+     bool region_field = false; bool uncompressed = false;
+     std::vector<int> rg_ids;
+     std::vector<std::string> rg_names;
      while (in.remaining() && in.front().is_string()) {
        std::string kw = in.pop().to_string();
-       if (cmd_strmatch(kw, "region field")) exp.enable_region_field();
-       else if (cmd_strmatch(kw, "compress")) exp.enable_compression();
-       else if (cmd_strmatch(kw, "uncompressed")) exp.enable_compression(0);
+       if (cmd_strmatch(kw, "region field")) region_field = true;
+       else if (cmd_strmatch(kw, "uncompressed")) uncompressed = true;
        else if (cmd_strmatch(kw, "region names")) {
          if (in.remaining() < 2)
            THROW_BADARG("'region names' expects an id vector and a name list");
@@ -1269,23 +1264,28 @@ build_sub_command_table(std::map<std::string, psub_command> &subc_tab) {
          mexargs_in names_in(1, &na, true);
          GMM_ASSERT1(ids.size() == size_type(names_in.remaining()),
                      "'region names': id vector and name list differ in length");
-         for (size_type i=0; i < ids.size(); ++i)
-           exp.set_region_name(int(ids[i]), names_in.pop().to_string());
+         for (size_type i=0; i < ids.size(); ++i) {
+           rg_ids.push_back(int(ids[i]));
+           rg_names.push_back(names_in.pop().to_string());
+         }
        }
-       else THROW_BADARG("expecting 'region field', 'compress', 'uncompressed' "
+       else THROW_BADARG("expecting 'region field', 'uncompressed' "
                          "or 'region names', got " << kw);
      }
+#ifdef GETFEM_HAVE_EXODUS
+     getfem::exodus_export exp(fname);
+     if (uncompressed) exp.enable_compression(0);
+     if (region_field) exp.enable_region_field();
+     for (size_type i=0; i < rg_ids.size(); ++i)
+       exp.set_region_name(rg_ids[i], rg_names[i]);
      exp.exporting(*pmesh);
      exp.write_mesh();
      exp.close();
-     );
 #else
-  sub_command
-    ("export to exodus", 1, -1, 0, 1,
-     THROW_BADARG("GetFEM was built without Exodus support; reconfigure with "
-                  "--enable-exodus");
-     );
+     GMM_ASSERT1(false, "GetFEM was built without Exodus support; "
+                 "reconfigure with --enable-exodus");
 #endif
+     );
 
 
   /*@GET V = ('exodus nodal data', @str filename, @str varname[, @int step])
@@ -1293,30 +1293,28 @@ build_sub_command_table(std::map<std::string, psub_command> &subc_tab) {
     --enable-exodus).
 
     Returns the values of nodal variable `varname` at time step `step`
-    (0-based, default 0), ordered by Exodus node number. When the mesh was
-    imported from the same file with MESH:INIT('import', 'exodus', ...), value
-    `i` corresponds to mesh point `i`.@*/
-#ifdef GETFEM_HAVE_EXODUS
+    (default: the first step), ordered by Exodus node number. When the mesh
+    was imported from the same file with MESH:INIT('import', 'exodus', ...),
+    value `i` corresponds to mesh point `i`.@*/
   sub_command
     ("exodus nodal data", 2, 3, 0, 1,
      (void)pmesh;
      std::string fname = in.pop().to_string();
      std::string vname = in.pop().to_string();
      size_type step = in.remaining()
-       ? size_type(in.pop().to_integer(0, INT_MAX)) : size_type(0);
+       ? size_type(in.pop().to_integer(config::base_index(), INT_MAX)
+                    - config::base_index())
+       : size_type(0);
+#ifdef GETFEM_HAVE_EXODUS
      getfem::exodus_import imp(fname);
      std::vector<double> vals;
      imp.read_nodal_var(vname, step, vals);
      out.pop().from_dcvector(vals);
-     );
 #else
-  sub_command
-    ("exodus nodal data", 2, 3, 0, 1,
-     (void)pmesh;
-     THROW_BADARG("GetFEM was built without Exodus support; reconfigure with "
-                  "--enable-exodus");
-     );
+     GMM_ASSERT1(false, "GetFEM was built without Exodus support; "
+                 "reconfigure with --enable-exodus");
 #endif
+     );
 
 
   /*@GET ('export to vtu', @str filename, ... [,'ascii'][,'quality'])

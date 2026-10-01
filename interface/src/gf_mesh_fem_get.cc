@@ -786,56 +786,31 @@ build_sub_command_table(std::map<std::string, psub_command> &subc_tab) {
      }
      );
 
-  /*@GET ('export to exodus',@str filename, ... ['region field']['uncompressed']['compress']['region names', @ivec ids, @list names][,'append'][,'time', @scalar t], U, 'name'...)
+  /*@GET ('export to exodus',@str filename, ... ['region field']['uncompressed']['region names', @ivec ids, @list names][,'append'][,'time', @scalar t], U, 'name'...)
     Export a @tmf and some nodal fields to an Exodus II file (requires GetFEM
     built with --enable-exodus).
 
     The FEM and geometric transformations are mapped to order 1 or 2
-    isoparametric Pk (or Qk) FEMs, as with the VTK export. GetFEM regions are
-    written as Exodus side sets (faces), element sets (convexes) and node sets;
-    in addition each volume region becomes an element block (so a viewer such as
-    ParaView can colour the regions by block id / ObjectId). The nodal fields
-    can be read back with MESH:GET('exodus nodal data').
-
-    Pass 'region field' to also write a ``region`` element (cell) variable
-    holding each element's block id; this is off by default because, being
-    time-constant, it would otherwise be stored at every transient step.
-    New files are written compressed (NetCDF4 classic-model) by default when
-    GetFEM was built with usable NetCDF4/HDF5 deflate support; otherwise they
-    default to classic 64-bit-offset output. Pass 'uncompressed' to force
-    classic output; pass 'compress' to request NetCDF4 compression explicitly.
-    Compression cannot be changed on 'append'.
-
-    With "'region names', ids, names" -- an integer region-id vector and a list
-    of strings of the same length -- the matching blocks/side sets/element
-    sets/node sets are named accordingly. Without it, region blocks are named
-    ``region_<id>`` and set names are left empty::
-
-      mf.export_to_exodus('b.exo', 'region names', [1,2,3], ['left','mid','right'], U, 'u')
-
-    For a transient result, call this once to create the file (optionally with
-    "'time', t" for the first step), then once per following step with the
-    'append' option; each 'append' reopens the file and appends one time step,
-    so a long run is written incrementally without keeping the whole history in
-    memory::
-
-      mf.export_to_exodus('r.exo', 'time', 0.0, U0, 'u')
-      mf.export_to_exodus('r.exo', 'append', 'time', 1.0, U1, 'u')@*/
-#ifdef GETFEM_HAVE_EXODUS
+    isoparametric Pk (or Qk) FEMs, as with the VTK export. GetFEM regions
+    become Exodus side sets, element sets and node sets, and each volume
+    region also becomes an element block; read the fields back with
+    MESH:GET('exodus nodal data'). For a transient result, call this once to
+    create the file, then once per following step with 'append' (each call
+    appends one time step without keeping prior steps in memory).@*/
   sub_command
     ("export to exodus", 0, -1, 0, 0,
      std::string fname = in.pop().to_string();
      bool append = false; bool has_time = false; double tval = 0.;
-     bool region_field = false; bool compress = false; bool uncompressed = false;
+     bool region_field = false; bool uncompressed = false;
      std::vector<int> rg_ids;            // (parallel vectors: a pair<> would put a
      std::vector<std::string> rg_names;  //  comma at the top level of the macro body)
      while (in.remaining() && in.front().is_string()) {
        std::string kw = in.pop().to_string();
        if (cmd_strmatch(kw, "append")) append = true;
        else if (cmd_strmatch(kw, "region field")) region_field = true;
-       else if (cmd_strmatch(kw, "compress")) compress = true;
        else if (cmd_strmatch(kw, "uncompressed")) uncompressed = true;
-       else if (cmd_strmatch(kw, "time")) { tval = in.pop().to_scalar(); has_time = true; }
+       else if (cmd_strmatch(kw, "time") && in.remaining())
+         { tval = in.pop().to_scalar(); has_time = true; }
        else if (cmd_strmatch(kw, "region names")) {
          if (in.remaining() < 2)
            THROW_BADARG("'region names' expects an id vector and a name list");
@@ -849,15 +824,15 @@ build_sub_command_table(std::map<std::string, psub_command> &subc_tab) {
            rg_names.push_back(names_in.pop().to_string());
          }
        }
-       else THROW_BADARG("expecting 'append', 'time', 'region field', 'compress', "
+       else THROW_BADARG("expecting 'append', 'time', 'region field', "
                          "'uncompressed' or 'region names', got " << kw);
      }
-     if (append && (compress || uncompressed))
+     if (append && uncompressed)
        THROW_BADARG("compression cannot be changed on 'append' (it is fixed when "
                     "the file is created)");
+#ifdef GETFEM_HAVE_EXODUS
      getfem::exodus_export exp(fname, append);
      if (uncompressed) exp.enable_compression(0);
-     else if (compress) exp.enable_compression();
      if (region_field) exp.enable_region_field();
      for (size_type i=0; i < rg_ids.size(); ++i)
        exp.set_region_name(rg_ids[i], rg_names[i]);
@@ -886,14 +861,11 @@ build_sub_command_table(std::map<std::string, psub_command> &subc_tab) {
        exp.write_point_data(*data_mf[i], data_u[i], data_name[i]);
      exp.close();   // explicit (not via destructor) so a per-step completeness
                     // error is reported to the caller instead of being swallowed
-     );
 #else
-  sub_command
-    ("export to exodus", 0, -1, 0, 0,
-     THROW_BADARG("GetFEM was built without Exodus support; reconfigure with "
-                  "--enable-exodus");
-     );
+     GMM_ASSERT1(false, "GetFEM was built without Exodus support; "
+                 "reconfigure with --enable-exodus");
 #endif
+     );
 
 
   /*@GET ('export to dx',@str filename, ...['as', @str mesh_name][,'edges']['serie',@str serie_name][,'ascii'][,'append'], U, 'name'...)
