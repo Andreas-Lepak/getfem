@@ -55,10 +55,8 @@ namespace getfem {
       exported mesh/mesh_fem, fields are interpolated onto it, and only the
       degrees of freedom that map to Exodus nodes are written.
 
-      A single Exodus file natively stores a transient (time-dependent) series:
-      call set_time() to open a new time step, then write_point_data() for each
-      field at that step. The file is finalised (and the buffered transient data
-      flushed) when close() is called or the object is destroyed.
+      A single Exodus file natively stores a transient (time-dependent)
+      series; see set_time(), write_point_data() and close().
   */
   class exodus_export {
   protected:
@@ -66,7 +64,7 @@ namespace getfem {
     int ncid_;                 // NetCDF file id (valid while file_open_)
     bool file_open_;
     char title_[256];
-    int d_num_nodes_, d_time_, d_len_name_; // NetCDF dim ids reused on close()
+    int d_num_nodes_, d_time_, d_len_name_; // NetCDF dim ids, kept for later variable definitions
 
     std::unique_ptr<mesh_fem> pmf_; // classical export mesh_fem
     dal::bit_vector pmf_dof_used_;  // basic dofs actually exported as nodes

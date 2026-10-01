@@ -78,10 +78,8 @@ namespace getfem {
     return std::string(buf.data(), len);
   }
 
-  /* read exactly `n` ints from `varid` into `out`. Using nc_get_vara_int with an
-     explicit count bounds the read to the caller's buffer, so a malformed file
-     whose variable is larger than its declared set/length cannot overflow it
-     (and a too-small variable yields a clean NC_EEDGE error). */
+  // bounds the read to out[0..n): a malformed too-small variable errors
+  // cleanly (NC_EEDGE) instead of overflowing the caller's buffer
   static void exo_get_ints(int ncid, int varid, size_t n, int *out) {
     if (n == 0) return;
     size_t start = 0, count = n;
@@ -94,14 +92,7 @@ namespace getfem {
     return u.compare(0,5,"SHELL") == 0 || u.find("SHELL") != std::string::npos;
   }
 
-  /* ********************************************************************* */
-  /*  Element-type mapping between GetFEM and Exodus.                      */
-  /*                                                                       */
-  /*  The permutation between GetFEM's local node ordering and Exodus'     */
-  /*  PATRAN ordering is derived by matching reference-element             */
-  /*  coordinates, so the same machinery serves both writing and reading   */
-  /*  and there is no hand-transcribed permutation table to get wrong.     */
-  /* ********************************************************************* */
+  /* ---- element-type mapping between GetFEM and Exodus (see exo_build_perm) ---- */
 
   enum exo_topo { EXO_BAR, EXO_TRI, EXO_QUAD, EXO_TET, EXO_HEX, EXO_WEDGE };
 
@@ -398,7 +389,9 @@ namespace getfem {
       vars_declared_ = true;
       transient_definitions_ready_ = true;   // already defined in the file
     }
-    // rediscover the "region" element variable so appended steps keep writing it
+    // rediscover the "region" element variable so appended steps keep writing
+    // it -- "region" is the only element variable this writer ever produces,
+    // so any other element-variable layout must come from outside GetFEM
     int d_ev;
     if (nc_inq_dimid(ncid_, "num_elem_var", &d_ev) == NC_NOERR) {
       size_t nev = 0; EXNC(nc_inq_dimlen(ncid_, d_ev, &nev));
@@ -535,12 +528,10 @@ namespace getfem {
     blocks_.clear();
     pmf_dof_used_.sup(0, pmf_->nb_basic_dof());
 
-    /* A convex's "primary" volume region = the smallest-id region that contains
-       it as a whole convex (face entries -> side sets, never blocks). When such
-       regions exist each one becomes its own Exodus block, so tools like
-       ParaView show/colour the regions natively (by block / ObjectId); convexes
-       in no volume region fall in a default block keyed by element type. Element
-       sets are still written too, so the GetFEM region round-trip is unchanged. */
+    // give each convex its "primary" (smallest-id) whole-convex region, so
+    // that region becomes its own Exodus block -- lets ParaView colour by
+    // block/ObjectId natively; element sets are still written too, so the
+    // round-trip is unaffected for convexes in several regions.
     // indexed by convex id (contiguous): -1 = convex in no volume region
     std::vector<int> primary_region(m.convex_index().last_true() + 1, -1);
     for (dal::bv_visitor r(m.regions_index()); !r.finished(); ++r)
@@ -669,13 +660,19 @@ namespace getfem {
       for (const auto &b : blocks_)
         for (size_type cv : b.convexes) cv_to_elem[cv] = ++gid; }
 
-    /* Each GetFEM region maps (by its id) to: a side set (its face entries),
-       an element set (its whole-convex entries), and a node set (all nodes it
-       touches). Side/element sets round-trip back to face/convex regions;
-       node sets are extra (useful for nodal BCs) and read back via node_set(). */
+    // each GetFEM region (by id) -> a side set (face entries), an element
+    // set (whole-convex entries) and a node set (all touched nodes); node
+    // sets are extra (read back via node_set()). `set_group` holds one such
+    // group: side sets have 2 data columns (element, side), the others 1.
+    struct set_group {
+      std::vector<int> ids;
+      std::vector<std::vector<std::vector<int> > > cols; // cols[column][set]
+      int prop = -1, status = -1, names = -1;
+      std::vector<std::vector<int> > col_var;             // col_var[column][set]
+    };
     std::map<exo_topo, std::vector<unsigned> > fperm_cache;
-    std::vector<int> ss_ids, es_ids, ns_ids;
-    std::vector<std::vector<int> > ss_elem, ss_side, es_elem, ns_node;
+    set_group ss, es, ns;
+    ss.cols.resize(2); es.cols.resize(1); ns.cols.resize(1);
     for (dal::bv_visitor r(m.regions_index()); !r.finished(); ++r) {
       std::vector<int> sel, ssd, eel;
       std::set<int> nds;
@@ -698,17 +695,12 @@ namespace getfem {
         }
       }
       if (!sel.empty()) {
-        ss_ids.push_back(int(r)); ss_elem.push_back(sel); ss_side.push_back(ssd); }
-      if (!eel.empty()) { es_ids.push_back(int(r)); es_elem.push_back(eel); }
+        ss.ids.push_back(int(r)); ss.cols[0].push_back(sel); ss.cols[1].push_back(ssd); }
+      if (!eel.empty()) { es.ids.push_back(int(r)); es.cols[0].push_back(eel); }
       if (!nds.empty()) {
-        ns_ids.push_back(int(r));
-        ns_node.push_back(std::vector<int>(nds.begin(), nds.end())); }
+        ns.ids.push_back(int(r));
+        ns.cols[0].push_back(std::vector<int>(nds.begin(), nds.end())); }
     }
-    size_type n_ss = ss_ids.size(), n_es = es_ids.size(), n_ns = ns_ids.size();
-    std::vector<int> v_ss_elem(n_ss, -1), v_ss_side(n_ss, -1);
-    std::vector<int> v_es_elem(n_es, -1), v_ns_node(n_ns, -1);
-    int v_ssp = -1, v_sss = -1, v_esp = -1, v_ess = -1, v_nsp = -1, v_nss = -1;
-    int v_ssn = -1, v_esn = -1, v_nsn = -1;   // side/elem/node-set name char vars
 
     int cmode = NC_CLOBBER | NC_64BIT_OFFSET;
     int e_create = NC_NOERR;
@@ -803,68 +795,63 @@ namespace getfem {
     EXNC(nc_def_var(ncid_, "node_num_map", NC_INT, 1, &d_nodes, &v_nmap));
     deflate_var_(v_nmap);
 
-    if (n_ss > 0) {
-      int d_nss;
-      EXNC(nc_def_dim(ncid_, "num_side_sets", n_ss, &d_nss));
-      EXNC(nc_def_var(ncid_, "ss_prop1", NC_INT, 1, &d_nss, &v_ssp));
-      deflate_var_(v_ssp);
-      EXNC(nc_put_att_text(ncid_, v_ssp, "name", 2, "ID"));
-      EXNC(nc_def_var(ncid_, "ss_status", NC_INT, 1, &d_nss, &v_sss));
-      deflate_var_(v_sss);
-      { int dd[2] = { d_nss, d_name };
-        EXNC(nc_def_var(ncid_, "ss_names", NC_CHAR, 2, dd, &v_ssn)); }
-      for (size_type i=0; i < n_ss; ++i) {
-        std::ostringstream sd; sd << "num_side_ss" << (i+1);
-        int dss;
-        EXNC(nc_def_dim(ncid_, sd.str().c_str(), ss_elem[i].size(), &dss));
-        std::ostringstream se, sf;
-        se << "elem_ss" << (i+1); sf << "side_ss" << (i+1);
-        EXNC(nc_def_var(ncid_, se.str().c_str(), NC_INT, 1, &dss, &v_ss_elem[i]));
-        deflate_var_(v_ss_elem[i]);
-        EXNC(nc_def_var(ncid_, sf.str().c_str(), NC_INT, 1, &dss, &v_ss_side[i]));
-        deflate_var_(v_ss_side[i]);
+    // define one set group's prop/status/names/data variables. `entry_dim`
+    // and `col_tag` carry Exodus's own irregular per-kind name fragments
+    // (e.g. side sets' per-entry dim is "num_side_ss", element sets' is
+    // "num_ele_els") -- not a derivable pattern, so passed in explicitly.
+    auto define_group = [&](set_group &g, const char *tag, const char *group_dim,
+                            const char *entry_dim,
+                            std::initializer_list<const char *> col_tag) {
+      size_type n = g.ids.size();
+      if (n == 0) return;
+      int dgrp;
+      EXNC(nc_def_dim(ncid_, group_dim, n, &dgrp));
+      std::string p = std::string(tag)+"_prop1", s = std::string(tag)+"_status",
+                  nm = std::string(tag)+"_names";
+      EXNC(nc_def_var(ncid_, p.c_str(), NC_INT, 1, &dgrp, &g.prop));
+      deflate_var_(g.prop);
+      EXNC(nc_put_att_text(ncid_, g.prop, "name", 2, "ID"));
+      EXNC(nc_def_var(ncid_, s.c_str(), NC_INT, 1, &dgrp, &g.status));
+      deflate_var_(g.status);
+      { int dd[2] = { dgrp, d_name };
+        EXNC(nc_def_var(ncid_, nm.c_str(), NC_CHAR, 2, dd, &g.names)); }
+      g.col_var.assign(col_tag.size(), std::vector<int>(n, -1));
+      for (size_type i=0; i < n; ++i) {
+        std::ostringstream sd; sd << entry_dim << (i+1);
+        int de;
+        EXNC(nc_def_dim(ncid_, sd.str().c_str(), g.cols[0][i].size(), &de));
+        size_type c = 0;
+        for (const char *ct : col_tag) {
+          std::ostringstream sv; sv << ct << "_" << tag << (i+1);
+          EXNC(nc_def_var(ncid_, sv.str().c_str(), NC_INT, 1, &de, &g.col_var[c][i]));
+          deflate_var_(g.col_var[c][i]);
+          ++c;
+        }
       }
-    }
+    };
+    // write a set group's ids/status/data/names (names optional, per set)
+    auto write_group = [&](const set_group &g) {
+      if (g.ids.empty()) return;
+      EXNC(nc_put_var_int(ncid_, g.prop, g.ids.data()));
+      std::vector<int> stat(g.ids.size(), 1);
+      EXNC(nc_put_var_int(ncid_, g.status, stat.data()));
+      for (size_type c=0; c < g.cols.size(); ++c)
+        for (size_type i=0; i < g.ids.size(); ++i)
+          EXNC(nc_put_var_int(ncid_, g.col_var[c][i], g.cols[c][i].data()));
+      for (size_type i=0; i < g.ids.size(); ++i) {
+        auto it = region_names_.find(g.ids[i]);
+        exo_put_string(ncid_, g.names, i, EXO_STRLEN,
+                       it == region_names_.end() ? std::string() : it->second);
+      }
+    };
 
-    if (n_es > 0) {
-      int d_nes;
-      EXNC(nc_def_dim(ncid_, "num_elem_sets", n_es, &d_nes));
-      EXNC(nc_def_var(ncid_, "els_prop1", NC_INT, 1, &d_nes, &v_esp));
-      deflate_var_(v_esp);
-      EXNC(nc_put_att_text(ncid_, v_esp, "name", 2, "ID"));
-      EXNC(nc_def_var(ncid_, "els_status", NC_INT, 1, &d_nes, &v_ess));
-      deflate_var_(v_ess);
-      { int dd[2] = { d_nes, d_name };
-        EXNC(nc_def_var(ncid_, "els_names", NC_CHAR, 2, dd, &v_esn)); }
-      for (size_type i=0; i < n_es; ++i) {
-        std::ostringstream sd; sd << "num_ele_els" << (i+1);
-        int des;
-        EXNC(nc_def_dim(ncid_, sd.str().c_str(), es_elem[i].size(), &des));
-        std::ostringstream se; se << "elem_els" << (i+1);
-        EXNC(nc_def_var(ncid_, se.str().c_str(), NC_INT, 1, &des, &v_es_elem[i]));
-        deflate_var_(v_es_elem[i]);
-      }
-    }
+    define_group(ss, "ss", "num_side_sets", "num_side_ss", {"elem", "side"});
+    define_group(es, "els", "num_elem_sets", "num_ele_els", {"elem"});
+    define_group(ns, "ns", "num_node_sets", "num_nod_ns", {"node"});
 
-    if (n_ns > 0) {
-      int d_nns;
-      EXNC(nc_def_dim(ncid_, "num_node_sets", n_ns, &d_nns));
-      EXNC(nc_def_var(ncid_, "ns_prop1", NC_INT, 1, &d_nns, &v_nsp));
-      deflate_var_(v_nsp);
-      EXNC(nc_put_att_text(ncid_, v_nsp, "name", 2, "ID"));
-      EXNC(nc_def_var(ncid_, "ns_status", NC_INT, 1, &d_nns, &v_nss));
-      deflate_var_(v_nss);
-      { int dd[2] = { d_nns, d_name };
-        EXNC(nc_def_var(ncid_, "ns_names", NC_CHAR, 2, dd, &v_nsn)); }
-      for (size_type i=0; i < n_ns; ++i) {
-        std::ostringstream sd; sd << "num_nod_ns" << (i+1);
-        int dns;
-        EXNC(nc_def_dim(ncid_, sd.str().c_str(), ns_node[i].size(), &dns));
-        std::ostringstream sn; sn << "node_ns" << (i+1);
-        EXNC(nc_def_var(ncid_, sn.str().c_str(), NC_INT, 1, &dns, &v_ns_node[i]));
-        deflate_var_(v_ns_node[i]);
-      }
-    }
+    // true whenever declare_point_data() was called first (required for any
+    // nodal field, see write_point_data()'s doc) -- defines the transient
+    // variables now, while already in NetCDF define mode
     bool predeclared_transient = !var_names_.empty();
     if (predeclared_transient) define_transient_vars_();
     EXNC(nc_enddef(ncid_));
@@ -953,49 +940,8 @@ namespace getfem {
       for (size_type i=0; i < nb_nodes_; ++i) nmap[i] = int(i) + 1;
       EXNC(nc_put_var_int(ncid_, v_nmap, nmap.data())); }
 
-    /* --- side sets --- */
-    if (n_ss > 0) {
-      EXNC(nc_put_var_int(ncid_, v_ssp, ss_ids.data()));
-      std::vector<int> sstat(n_ss, 1);
-      EXNC(nc_put_var_int(ncid_, v_sss, sstat.data()));
-      for (size_type i=0; i < n_ss; ++i) {
-        EXNC(nc_put_var_int(ncid_, v_ss_elem[i], ss_elem[i].data()));
-        EXNC(nc_put_var_int(ncid_, v_ss_side[i], ss_side[i].data()));
-      }
-      for (size_type i=0; i < n_ss; ++i) {  // optional set names (empty if unset)
-        auto it = region_names_.find(ss_ids[i]);
-        exo_put_string(ncid_, v_ssn, i, EXO_STRLEN,
-                       it == region_names_.end() ? std::string() : it->second);
-      }
-    }
-
-    /* --- element sets (from whole-convex region entries) --- */
-    if (n_es > 0) {
-      EXNC(nc_put_var_int(ncid_, v_esp, es_ids.data()));
-      std::vector<int> estat(n_es, 1);
-      EXNC(nc_put_var_int(ncid_, v_ess, estat.data()));
-      for (size_type i=0; i < n_es; ++i)
-        EXNC(nc_put_var_int(ncid_, v_es_elem[i], es_elem[i].data()));
-      for (size_type i=0; i < n_es; ++i) {  // optional set names (empty if unset)
-        auto it = region_names_.find(es_ids[i]);
-        exo_put_string(ncid_, v_esn, i, EXO_STRLEN,
-                       it == region_names_.end() ? std::string() : it->second);
-      }
-    }
-
-    /* --- node sets (nodes touched by each region) --- */
-    if (n_ns > 0) {
-      EXNC(nc_put_var_int(ncid_, v_nsp, ns_ids.data()));
-      std::vector<int> nstat(n_ns, 1);
-      EXNC(nc_put_var_int(ncid_, v_nss, nstat.data()));
-      for (size_type i=0; i < n_ns; ++i)
-        EXNC(nc_put_var_int(ncid_, v_ns_node[i], ns_node[i].data()));
-      for (size_type i=0; i < n_ns; ++i) {  // optional set names (empty if unset)
-        auto it = region_names_.find(ns_ids[i]);
-        exo_put_string(ncid_, v_nsn, i, EXO_STRLEN,
-                       it == region_names_.end() ? std::string() : it->second);
-      }
-    }
+    /* --- side/element/node sets --- */
+    write_group(ss); write_group(es); write_group(ns);
 
     state_ = MESH_WRITTEN;
   }
@@ -1146,6 +1092,8 @@ namespace getfem {
 
   void exodus_export::finish_current_step_(bool do_sync) {
     if (cur_step_ < 0 || !cur_time_valid_) return;
+    // only a region-field-only export (no declare_point_data() call) reaches
+    // this undeclared on the first step; anything else is declared already
     if (!vars_declared_) declare_transient_vars_();
     else {
       check_current_step_complete_();
