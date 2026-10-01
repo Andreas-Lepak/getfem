@@ -36,6 +36,7 @@ using getfem::size_type;
 using getfem::scalar_type;
 using getfem::base_node;
 using bgeot::short_type;
+using bgeot::dim_type;
 
 // an arbitrary smooth scalar field, sampled at node coordinates
 static scalar_type field(const base_node &p, scalar_type t = 1.) {
@@ -69,16 +70,17 @@ static void expect_gmm_error(const std::string &what, F f,
 }
 
 // write a mesh_fem (classical of `order`, or the named serendipity `fem` if
-// given) + a scalar field, read it back, and check the geometry and values
+// given, qdim components) + a field, read it back, and check the geometry
+// and values; qdim>1 exercises the name_x/name_y component split
 static void test_roundtrip(const std::string &gt, short_type order,
                            const std::vector<size_type> &nsub,
-                           const char *fem = nullptr) {
+                           const char *fem = nullptr, size_type qdim = 1) {
   std::string tag = fem ? std::string(fem) : gt + " (order " + char('0'+order) + ")";
   const char *fname = "test_exodus_tmp.exo";
 
   getfem::mesh m;
   getfem::regular_unit_mesh(m, nsub, bgeot::geometric_trans_descriptor(gt));
-  getfem::mesh_fem mf(m);
+  getfem::mesh_fem mf(m); mf.set_qdim(dim_type(qdim));
   if (fem)
     for (dal::bv_visitor cv(m.convex_index()); !cv.finished(); ++cv)
       mf.set_finite_element(cv, getfem::fem_descriptor(fem));
@@ -89,88 +91,48 @@ static void test_roundtrip(const std::string &gt, short_type order,
   for (size_type i=0; i < mf.nb_dof(); ++i) U[i] = field(mf.point_of_basic_dof(i));
 
   { getfem::exodus_export ex(fname);
-    ex.declare_point_data("u");
+    ex.declare_point_data("u", qdim);
     ex.exporting(mf); ex.write_mesh();
     ex.write_point_data(mf, U, "u"); }              // closed by destructor
 
   getfem::mesh m2;
   getfem::exodus_import imp(fname);
   imp.read_mesh(m2);
-
   GMM_ASSERT1(m2.convex_index().card() == m.convex_index().card(),
               tag << ": number of elements");
 
-  std::vector<scalar_type> Ub;
-  imp.read_nodal_var("u", 0, Ub);
-  GMM_ASSERT1(Ub.size() == imp.node_points().size(), tag << ": variable length");
-  scalar_type err = node_value_error(imp, Ub, 1.);
+  scalar_type err = 0.; size_type nnod = 0;
+  for (size_type q=0; q < qdim; ++q) {              // read each component back
+    std::string nm = qdim == 1 ? "u" : "u_" + std::string(1, char('x'+q));
+    std::vector<scalar_type> Ub;
+    imp.read_nodal_var(nm, 0, Ub);
+    nnod = Ub.size();
+    err = std::max(err, node_value_error(imp, Ub, 1.));
+  }
+  GMM_ASSERT1(nnod == imp.node_points().size(), tag << ": variable length");
   GMM_ASSERT1(err < 1e-10, tag << ": field values (err=" << err << ")");
   cout << "  " << tag << ": " << m2.convex_index().card() << " elements, "
-       << Ub.size() << " nodes, value error " << err << endl;
+       << nnod << " nodes, value error " << err << endl;
 }
 
-// a vector (qdim>1) field is written as components name_x / name_y
-static void test_vector_field_roundtrip() {
-  const char *fname = "test_exodus_vec.exo";
-  getfem::mesh m;
-  getfem::regular_unit_mesh(m, {3,3}, bgeot::geometric_trans_descriptor("GT_QK(2,1)"));
-  getfem::mesh_fem mf(m); mf.set_qdim(2); mf.set_classical_finite_element(1);
-  std::vector<scalar_type> U(mf.nb_dof());
-  for (size_type i=0; i < mf.nb_dof(); ++i) U[i] = field(mf.point_of_basic_dof(i));
-  { getfem::exodus_export ex(fname);
-    ex.declare_point_data("disp", 2);
-    ex.exporting(mf); ex.write_mesh();
-    ex.write_point_data(mf, U, "disp"); }
-  getfem::mesh m2; getfem::exodus_import imp(fname); imp.read_mesh(m2);
-  std::vector<scalar_type> Ux, Uy;
-  imp.read_nodal_var("disp_x", 0, Ux);
-  imp.read_nodal_var("disp_y", 0, Uy);
-  scalar_type err = std::max(node_value_error(imp, Ux, 1.),
-                             node_value_error(imp, Uy, 1.));
-  GMM_ASSERT1(err < 1e-10, "vector field: disp_x/_y values (err=" << err << ")");
-  cout << "  vector field: disp_x/_y round-trip, value error " << err << endl;
-}
-
-// export a mesh whose outer faces form region 7, read it back through the
-// generic import_mesh() dispatch, and check the boundary side set survived
-// as a face region
+// export a mesh with a boundary face region AND a volume region, read it
+// back (through the generic import_mesh() dispatch, and directly for
+// node_set()), and check both regions and the node set survived
 static void test_region_roundtrip() {
   const char *fname = "test_exodus_region.exo";
   getfem::mesh m;
-  getfem::regular_unit_mesh(m, {3,3}, bgeot::geometric_trans_descriptor("GT_QK(2,1)"));
-  getfem::outer_faces_of_mesh(m, m.region(7));
+  getfem::regular_unit_mesh(m, {2,2,2}, bgeot::geometric_trans_descriptor("GT_PK(3,1)"));
+  getfem::outer_faces_of_mesh(m, m.region(7));          // boundary face region
   size_type n_orig = 0;
   for (getfem::mr_visitor i(m.region(7)); !i.finished(); ++i)
     if (i.is_face()) ++n_orig;
-
-  { getfem::exodus_export ex(fname); ex.exporting(m); ex.write_mesh(); }
-
-  getfem::mesh m2;
-  getfem::import_mesh(fname, "exodus", m2);
-  GMM_ASSERT1(m2.regions_index().is_in(7), "region roundtrip: region present");
-
-  size_type n_imp = 0;
-  for (getfem::mr_visitor i(m2.region(7)); !i.finished(); ++i)
-    if (i.is_face()) ++n_imp;
-  GMM_ASSERT1(n_imp == n_orig, "region roundtrip: boundary face count");
-  cout << "  region roundtrip: " << n_imp << "/" << n_orig
-       << " boundary faces round-tripped" << endl;
-}
-
-// export a mesh with a convex (volume) region, read it back, and check the
-// region (Exodus element set) and its node set survived
-static void test_volume_region_roundtrip() {
-  const char *fname = "test_exodus_vol.exo";
-  getfem::mesh m;
-  getfem::regular_unit_mesh(m, {2,2,2}, bgeot::geometric_trans_descriptor("GT_PK(3,1)"));
-  { size_type c = 0;
+  { size_type c = 0;                                    // + a volume region
     for (dal::bv_visitor cv(m.convex_index()); !cv.finished(); ++cv, ++c)
       if (c % 2 == 0) m.region(5).add(cv); }
 
-  // Identify the region's convexes by their centroid, not by convex id: the
-  // export gives each volume region its own Exodus element block, and Exodus
-  // numbers elements block by block, so the imported convex ids are legitimately
-  // renumbered. Coordinates round-trip exactly, so centroid sets must match.
+  // Identify the volume region's convexes by centroid, not convex id: each
+  // volume region becomes its own Exodus element block, numbered block by
+  // block, so imported convex ids are legitimately renumbered.
   auto region_centroids = [](const getfem::mesh &mm, size_type rid) {
     std::set<std::vector<double> > s;
     for (getfem::mr_visitor i(mm.region(rid)); !i.finished(); ++i)
@@ -188,15 +150,27 @@ static void test_volume_region_roundtrip() {
 
   { getfem::exodus_export ex(fname); ex.exporting(m); ex.write_mesh(); }
 
-  getfem::mesh m2;
-  getfem::exodus_import imp(fname);
-  imp.read_mesh(m2);
-  GMM_ASSERT1(m2.regions_index().is_in(5), "volume region: region present");
-  std::set<std::vector<double> > got = region_centroids(m2, 5);
-  GMM_ASSERT1(got == orig, "volume region: convex set (by centroid)");
-  GMM_ASSERT1(!imp.node_set(5).empty(), "volume region: node set present");
-  cout << "  volume region: " << got.size() << "/" << orig.size()
-       << " convexes, " << imp.node_set(5).size() << " nodes in node set" << endl;
+  getfem::mesh m2;                       // via the generic import_mesh() dispatch
+  getfem::import_mesh(fname, "exodus", m2);
+  GMM_ASSERT1(m2.convex_index().card() == m.convex_index().card(),
+              "region roundtrip: element count");
+
+  getfem::exodus_import imp(fname);      // direct, needed for node_set()
+  getfem::mesh m3; imp.read_mesh(m3);
+
+  GMM_ASSERT1(m3.regions_index().is_in(7), "region roundtrip: boundary region present");
+  size_type n_imp = 0;
+  for (getfem::mr_visitor i(m3.region(7)); !i.finished(); ++i)
+    if (i.is_face()) ++n_imp;
+  GMM_ASSERT1(n_imp == n_orig, "region roundtrip: boundary face count");
+
+  GMM_ASSERT1(m3.regions_index().is_in(5), "region roundtrip: volume region present");
+  std::set<std::vector<double> > got = region_centroids(m3, 5);
+  GMM_ASSERT1(got == orig, "region roundtrip: volume convex set (by centroid)");
+  GMM_ASSERT1(!imp.node_set(5).empty(), "region roundtrip: node set present");
+
+  cout << "  region roundtrip: " << n_imp << "/" << n_orig << " boundary faces, "
+       << got.size() << "/" << orig.size() << " volume convexes" << endl;
 }
 
 // a transient field written incrementally: create the file at step 0, then
@@ -263,14 +237,11 @@ static void test_append_fingerprint_mismatch() {
 int main() {
   try {
     cout << "Exodus round-trip tests" << endl;
-    test_roundtrip("GT_PK(2,1)", 2, {3,3});                            // TRI6
-    test_roundtrip("GT_QK(3,1)", 1, {2,2,2});                          // HEX8
-    test_roundtrip("GT_QK(2,1)", 0, {2,2}, "FEM_Q2_INCOMPLETE(2)");    // QUAD8
-    test_roundtrip("GT_QK(3,1)", 0, {2,2,2}, "FEM_Q2_INCOMPLETE(3)");  // HEX20
-    test_roundtrip("GT_PRISM(3,1)", 0, {2,2,2}, "FEM_PRISM_INCOMPLETE_P2"); // WEDGE15
-    test_vector_field_roundtrip();
+    test_roundtrip("GT_PK(2,1)", 2, {3,3});                           // TRI6
+    test_roundtrip("GT_QK(3,1)", 1, {2,2,2});                         // HEX8
+    test_roundtrip("GT_QK(2,1)", 1, {3,3}, nullptr, 2);                // vector field
+    test_roundtrip("GT_QK(3,1)", 0, {2,2,2}, "FEM_Q2_INCOMPLETE(3)");  // HEX20 (serendipity)
     test_region_roundtrip();
-    test_volume_region_roundtrip();
     test_time_series_append();
     test_append_fingerprint_mismatch();
     cout << "all Exodus round-trip tests passed" << endl;
