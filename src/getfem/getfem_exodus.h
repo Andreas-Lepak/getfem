@@ -88,12 +88,11 @@ namespace getfem {
     };
     std::vector<block_info> blocks_;
 
-    // Transient streaming: each step's slab is written straight to the open
-    // file. The variable set is discovered from step 0 (buffered), declared
-    // once, then later steps stream with no in-memory history.
+    // Transient streaming: every nodal variable is declared (via
+    // declare_point_data()) before write_mesh(), so each step's slab is
+    // written straight to the open file with no in-memory history.
     std::vector<std::string> var_names_;    // scalar nodal variable names (order)
     std::map<std::string, int> var_id_;     // name -> NetCDF varid (once declared)
-    std::map<std::string, std::vector<scalar_type> > step0_; // step-0 buffer
     int v_time_;                            // NetCDF varid of time_whole
     int v_nod_names_, v_elem_names_, v_elem_var_tab_;
     bool vars_declared_;
@@ -148,9 +147,10 @@ namespace getfem {
         the file is created (not on append). */
     void enable_compression(int level = 1);
 
-    /** Predeclare a nodal variable before write_mesh(), avoiding a later
-        NetCDF redefine. Vector fields use the same component names as
-        write_point_data(): name_x, name_y, name_z or name_0... */
+    /** Declare a nodal variable; must be called for every field that will be
+        written with write_point_data(), before write_mesh(). Vector fields
+        use the same component names as write_point_data(): name_x, name_y,
+        name_z or name_0... */
     void declare_point_data(const std::string &name, size_type qdim = 1);
 
     /** write the mesh (coordinates + element blocks + connectivity). */
@@ -251,9 +251,6 @@ namespace getfem {
     void read_nodal_var_(const std::string &name, size_type step,
                          std::vector<scalar_type> &U) const;
   };
-
-  /** Hook used by getfem::import_mesh(..., "exodus", ...). */
-  void import_mesh_exodus(const std::string &fname, mesh &m);
 
   /* --- template implementations --- */
 

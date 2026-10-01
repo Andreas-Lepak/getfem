@@ -25,7 +25,6 @@
 #include "getfem/getfem_mesh.h"
 #include "getfem/getfem_import.h"
 #include "getfem/getfem_regular_meshes.h"
-#include "getfem/getfem_exodus.h"
 
 namespace getfem {
 

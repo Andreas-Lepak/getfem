@@ -19,6 +19,7 @@
 ===========================================================================*/
 
 #include "getfem/getfem_exodus.h"
+#include "getfem/getfem_import.h"
 
 #ifdef GETFEM_HAVE_EXODUS
 
@@ -354,11 +355,8 @@ namespace getfem {
     file_nb_nodes_ = 0; region_field_ = false; append_base_step_ = -1;
     cur_time_ = scalar_type(0); cur_time_valid_ = false; cur_time_written_ = false;
     compression_explicit_ = false;
-#ifdef GETFEM_HAVE_EXODUS_NETCDF4
-    compression_ = true;  // compressed NetCDF4 by default when available
-#else
-    compression_ = false; // classic 64-bit offset when NetCDF4 is unavailable
-#endif
+    compression_ = true;  // compressed NetCDF4 attempted by default; write_mesh()
+                          // falls back to classic 64-bit offset if that fails
     compression_level_ = 1;
     file_mesh_fingerprint_.clear();
   }
@@ -443,13 +441,9 @@ namespace getfem {
     GMM_ASSERT1(state_ < MESH_WRITTEN && !append_mode_,
                 "Exodus compression must be (de)selected before the file is "
                 "created, and cannot be changed on append");
-    if (level > 0) {
-#ifndef GETFEM_HAVE_EXODUS_NETCDF4
-      GMM_ASSERT1(false, "Exodus compression requires NetCDF4/HDF5 deflate "
-                  "support; rebuild GetFEM with such a NetCDF library or pass "
-                  "level 0 / 'uncompressed'");
-#endif
-    }
+    // level > 0 requires NetCDF4/HDF5 deflate support; if the linked NetCDF
+    // library doesn't have it, write_mesh()'s nc_create will fail and report
+    // the real NetCDF error (there is no reliable compile-time test for this).
     compression_explicit_ = true;
     compression_ = (level > 0);
     compression_level_ = std::max(0, std::min(level, 9));
@@ -641,16 +635,10 @@ namespace getfem {
   }
 
   void exodus_export::deflate_var_(int varid) const {
-#ifndef GETFEM_HAVE_EXODUS_NETCDF4
-    (void)varid;
-#endif
+    // only called after the file was successfully created in NC_NETCDF4 mode
+    // (see write_mesh()), so compression_ accurately reflects deflate support
     if (!compression_) return;
-#ifdef GETFEM_HAVE_EXODUS_NETCDF4
     EXNC(nc_def_var_deflate(ncid_, varid, 1, 1, compression_level_));
-#else
-    GMM_ASSERT1(false, "Exodus compression requires NetCDF4/HDF5 deflate "
-                "support");
-#endif
   }
 
   /* write a fixed-length, NUL-padded string at row `row` of a (n, len) char var */
@@ -725,18 +713,15 @@ namespace getfem {
     int cmode = NC_CLOBBER | NC_64BIT_OFFSET;
     int e_create = NC_NOERR;
     if (compression_) {
-#ifdef GETFEM_HAVE_EXODUS_NETCDF4
       cmode = NC_CLOBBER | NC_NETCDF4 | NC_CLASSIC_MODEL;
       e_create = nc_create(fname_.c_str(), cmode, &ncid_);
       if (e_create != NC_NOERR && !compression_explicit_) {
+        // NetCDF4/HDF5 deflate isn't usable with this NetCDF build; fall back
+        // to a classic file unless the caller explicitly asked for compression
         compression_ = false;
         cmode = NC_CLOBBER | NC_64BIT_OFFSET;
         e_create = nc_create(fname_.c_str(), cmode, &ncid_);
       }
-#else
-      compression_ = false;
-      e_create = nc_create(fname_.c_str(), cmode, &ncid_);
-#endif
     } else {
       e_create = nc_create(fname_.c_str(), cmode, &ncid_);
     }
@@ -1058,28 +1043,17 @@ namespace getfem {
       // matches the (truncated) name written to / read back from the file --
       // otherwise a long name would be rejected on append.
       if (nm.size() >= EXO_STRLEN) nm.resize(EXO_STRLEN - 1);
-      if (!vars_declared_) {
-        // step 0: record the variable (preserving order) and gather its values
-        // straight into the step-0 buffer it will be flushed from
-        bool seen = false;
-        for (const auto &n : var_names_) if (n == nm) { seen = true; break; }
-        if (!seen) var_names_.push_back(nm);
-        std::vector<scalar_type> &buf = step0_[nm];
-        buf.resize(nb_nodes_);
-        for (size_type i=0; i < nb_nodes_; ++i) buf[i] = V[i*Q+q];
-      } else {
-        auto it = var_id_.find(nm);
-        GMM_ASSERT1(it != var_id_.end(), "Exodus transient export: variable '"
-                    << nm << "' appeared after the first time step; the set of "
-                    "written fields must be the same at every step");
-        col_.resize(nb_nodes_);              // reused across components/steps
-        for (size_type i=0; i < nb_nodes_; ++i) col_[i] = V[i*Q+q];
-        size_t start[2] = { step, 0 }, count[2] = { 1, nb_nodes_ };
-        EXNC(nc_put_vara_double(ncid_, it->second, start, count, col_.data()));
-        bool already = false;            // record that this field got this step
-        for (const auto &n : step_written_) if (n == nm) { already = true; break; }
-        if (!already) step_written_.push_back(nm);
-      }
+      auto it = var_id_.find(nm);
+      GMM_ASSERT1(it != var_id_.end(), "Exodus transient export: variable '"
+                  << nm << "' was not declared with declare_point_data() "
+                  "before write_mesh()");
+      col_.resize(nb_nodes_);              // reused across components/steps
+      for (size_type i=0; i < nb_nodes_; ++i) col_[i] = V[i*Q+q];
+      size_t start[2] = { step, 0 }, count[2] = { 1, nb_nodes_ };
+      EXNC(nc_put_vara_double(ncid_, it->second, start, count, col_.data()));
+      bool already = false;            // record that this field got this step
+      for (const auto &n : step_written_) if (n == nm) { already = true; break; }
+      if (!already) step_written_.push_back(nm);
     }
   }
 
@@ -1137,24 +1111,16 @@ namespace getfem {
     }
   }
 
-  /* Declare the transient NetCDF variables (once step 0's field set is known)
-     and flush the buffered step 0. From then on steps stream directly. */
+  /* Reached only for a region-field-only export (no nodal variable was
+     declared with declare_point_data() before write_mesh()): define the
+     transient variables lazily, on the first set_time()/write. Any export
+     with a nodal field is already declared by write_mesh() itself. */
   void exodus_export::declare_transient_vars_() {
     EXNC(nc_redef(ncid_));
     define_transient_vars_();
     EXNC(nc_enddef(ncid_));
     write_transient_metadata_();
     vars_declared_ = true;
-
-    for (const auto &kv : step0_) {
-      size_t start[2] = { size_t(cur_step_), 0 }, count[2] = { 1, nb_nodes_ };
-      EXNC(nc_put_vara_double(ncid_, var_id_[kv.first], start, count,
-                              kv.second.data()));
-      bool already = false;
-      for (const auto &n : step_written_) if (n == kv.first) already = true;
-      if (!already) step_written_.push_back(kv.first);
-    }
-    step0_.clear();
     write_step_time_and_region_();
     EXNC(nc_sync(ncid_));
   }
