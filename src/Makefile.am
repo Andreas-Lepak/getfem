@@ -242,26 +242,15 @@ SRC =                                                      \
   getfem_omp.cc                                            \
   getfem_level_set_contact.cc                              \
   getfem_im_data.cc                                        \
-  getfem_continuation.cc
+  getfem_continuation.cc                                   \
+  getfem_exodus.cc
 #  getfem_enumeration_dof_para.cc
 
-# Exodus II support is optional (configure --enable-exodus). The source is
-# compiled into libgetfem only when enabled, and the NetCDF library is linked
-# only then (@NETCDF_LIBS@ is empty otherwise).
-if EXODUS
-EXODUS_SRC = getfem_exodus.cc
-else
-EXODUS_SRC =
-endif
-
 lib_LTLIBRARIES = libgetfem.la
-libgetfem_la_SOURCES = $(SRC) $(EXODUS_SRC)
+libgetfem_la_SOURCES = $(SRC)
 libgetfem_la_LDFLAGS = ${LIBTOOL_VERSION_INFO}
 libgetfem_la_LIBADD = @SUPERLU_LIBS@ @MUMPS_LIBS@ @NETCDF_LIBS@
 AM_CPPFLAGS = -I$(top_srcdir)/src -I../src -I$(top_srcdir)
-
-# always shipped in the tarball, even when Exodus is disabled
-EXTRA_DIST = getfem_exodus.cc
 
 CLEANFILES = ii_files/* *.o.d getfem/getfem_im_list.h
 DISTCLEANFILES = getfem/getfem_arch_config.h gmm/gmm_arch_config.h

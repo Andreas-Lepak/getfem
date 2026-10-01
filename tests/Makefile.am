@@ -262,7 +262,6 @@ EXTRA_DIST =                                         \
   meshes/punch2D_2.mesh                              \
   meshes/multi_body.mesh                             \
   meshes/donut_regulier_512_elements.mesh            \
-  test_exodus.pl                                     \
-  test_exodus.cc
+  test_exodus.pl
 
 LOG_COMPILER = perl

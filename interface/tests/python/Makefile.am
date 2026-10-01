@@ -30,8 +30,8 @@ endif
 
 
 EXTRA_DIST=                                       \
-    check_export.py                               \
     check_exodus.py                               \
+    check_export.py                               \
     check_export_vtu.py                           \
     check_global_functions.py                     \
     check_levelset.py                             \
@@ -95,7 +95,7 @@ TESTS =                         \
     $(optpy_exodus)
 
 AM_TESTS_ENVIRONMENT = \
-    export PYTHONPATH=$(top_builddir)/interface/src/python:$(PYTHONPATH); \
+    export PYTHONPATH=$(PYTHONPATH):$(top_builddir)/interface/src/python; \
     export LD_LIBRARY_PATH=$(LD_LIBRARY_PATH):$(top_builddir)/src/.libs;
 LOG_COMPILER = $(PYTHON)
 endif

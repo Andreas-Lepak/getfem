@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.23)
 include(CheckIncludeFile)
 include(CheckIncludeFileCXX)
 include(CheckCXXSourceCompiles)
-include(CheckCXXSourceRuns)
 include(CheckLibraryExists)
 
 string(ASCII 27 ESC)
@@ -214,62 +213,6 @@ if(NOT ENABLE_MUMPS AND NOT ENABLE_SUPERLU)
           "Use MUMPS_LIB_DIR, MUMPS_INC_DIR, SUPERLU_LIB_DIR and SUPERLU_INC_DIR")
 endif()
 
-if(ENABLE_EXODUS)
-  if(NETCDF_INC_DIR)
-    find_path(NETCDF_INCLUDE_DIR NAMES netcdf.h
-              PATHS ${NETCDF_INC_DIR} NO_DEFAULT_PATH)
-  else()
-    find_path(NETCDF_INCLUDE_DIR NAMES netcdf.h)
-  endif()
-  if(NETCDF_LIB_DIR)
-    find_library(NETCDF_LIBRARY NAMES netcdf
-                 PATHS ${NETCDF_LIB_DIR} NO_DEFAULT_PATH)
-  else()
-    find_library(NETCDF_LIBRARY NAMES netcdf)
-  endif()
-  if(NETCDF_INCLUDE_DIR AND NETCDF_LIBRARY)
-    set(GETFEM_HAVE_EXODUS 1)
-    message(STATUS "Building with Exodus II support")
-    message(STATUS "NETCDF_INCLUDE_DIR = ${NETCDF_INCLUDE_DIR}")
-    message(STATUS "NETCDF_LIBRARY = ${NETCDF_LIBRARY}")
-    set(_GETFEM_SAVE_CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES})
-    set(_GETFEM_SAVE_CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-    set(CMAKE_REQUIRED_INCLUDES ${NETCDF_INCLUDE_DIR})
-    set(CMAKE_REQUIRED_LIBRARIES ${NETCDF_LIBRARY})
-    check_cxx_source_runs("
-      #include <cstdio>
-      #include <netcdf.h>
-      int main() {
-        const char *fname = \"getfem_netcdf4_probe.nc\";
-        int ncid = -1, dimid = -1, varid = -1;
-        int st = nc_create(fname, NC_CLOBBER | NC_NETCDF4 | NC_CLASSIC_MODEL,
-                           &ncid);
-        if (st == NC_NOERR) st = nc_def_dim(ncid, \"n\", 1, &dimid);
-        if (st == NC_NOERR) st = nc_def_var(ncid, \"x\", NC_DOUBLE, 1,
-                                            &dimid, &varid);
-        if (st == NC_NOERR) st = nc_def_var_deflate(ncid, varid, 1, 1, 1);
-        if (ncid >= 0) nc_close(ncid);
-        std::remove(fname);
-        return st == NC_NOERR ? 0 : 1;
-      }" GETFEM_HAVE_EXODUS_NETCDF4)
-    set(CMAKE_REQUIRED_INCLUDES ${_GETFEM_SAVE_CMAKE_REQUIRED_INCLUDES})
-    set(CMAKE_REQUIRED_LIBRARIES ${_GETFEM_SAVE_CMAKE_REQUIRED_LIBRARIES})
-    if(GETFEM_HAVE_EXODUS_NETCDF4)
-      message(STATUS "NetCDF4/HDF5 deflate support found for Exodus compression")
-    else()
-      message(WARNING "NetCDF was found, but NetCDF4/HDF5 deflate support was "
-                      "not usable; Exodus output will default to classic "
-                      "64-bit-offset files")
-    endif()
-  else()
-    message(FATAL_ERROR
-            "ENABLE_EXODUS requires NetCDF C headers and library. "
-            "Use NETCDF_INC_DIR and NETCDF_LIB_DIR to help cmake find them.")
-  endif()
-else()
-  message("Building with Exodus II support explicitly disabled")
-endif()
-
 # define source files and main build target
 set(SOURCES
     src/bgeot_convex_ref.cc
@@ -347,12 +290,9 @@ set(SOURCES
     src/getfem_partial_mesh_fem.cc
     src/getfem_plasticity.cc
     src/getfem_projected_fem.cc
+    src/getfem_exodus.cc
     src/getfem_regular_meshes.cc
     src/getfem_torus.cc)
-
-if(ENABLE_EXODUS)
-  list(APPEND SOURCES src/getfem_exodus.cc)
-endif()
 
 set(HEADERS
     src/gmm/gmm_algobase.h
@@ -534,8 +474,8 @@ if(ENABLE_MUMPS)
   target_link_libraries(libgetfem PUBLIC "${MUMPS_LIBS}")
 endif()
 if(ENABLE_EXODUS)
-  target_include_directories(libgetfem PRIVATE ${NETCDF_INCLUDE_DIR})
-  target_link_libraries(libgetfem PRIVATE ${NETCDF_LIBRARY})
+  target_include_directories(libgetfem PRIVATE ${NETCDF_INCLUDE_PATH})
+  target_link_libraries(libgetfem PRIVATE ${NETCDF_LIBS})
 endif()
 
 if(NOT GETFEM_PARA_LEVEL MATCHES "^(0|1|2)$")
@@ -725,6 +665,23 @@ else()
   message("Building with Qhull explicitly disabled")
 endif()
 
+if(ENABLE_EXODUS)
+  find_library(NETCDF_LIBS NAMES netcdf PATHS ${NETCDF_LIB_DIR})
+  find_path(NETCDF_INCLUDE_PATH NAMES netcdf.h HINTS ${NETCDF_INC_DIR})
+  if(NETCDF_LIBS AND NETCDF_INCLUDE_PATH)
+    set(GETFEM_HAVE_EXODUS 1)
+    message(STATUS "NETCDF_INCLUDE_PATH = ${NETCDF_INCLUDE_PATH}")
+    message(STATUS "NETCDF_LIBS = ${NETCDF_LIBS}")
+    message(STATUS "Building with Exodus II support")
+  else()
+    message(FATAL_ERROR
+            "ENABLE_EXODUS requires the NetCDF C library and headers. "
+            "Use NETCDF_LIB_DIR and NETCDF_INC_DIR to help cmake find them.")
+  endif()
+else()
+  message("Building with Exodus II support explicitly disabled")
+endif()
+
 if(ENABLE_FORCE_SINGLETHREAD_BLAS)
   find_library(DL_LIB NAMES dl)
   set(CMAKE_REQUIRED_LIBRARIES ${DL_LIB})
@@ -752,6 +709,7 @@ message(STATUS "  ENABLE_OPENMP: ${ENABLE_OPENMP}")
 message(STATUS "  ENABLE_SUPERLU: ${ENABLE_SUPERLU}")
 message(STATUS "  ENABLE_MUMPS: ${ENABLE_MUMPS}")
 message(STATUS "  ENABLE_QHULL: ${ENABLE_QHULL}")
+message(STATUS "  ENABLE_EXODUS: ${ENABLE_EXODUS}")
 message(STATUS "  ENABLE_FORCE_SINGLETHREAD_BLAS: ${ENABLE_FORCE_SINGLETHREAD_BLAS}")
 message(STATUS "GetFEM version ${GETFEM_VERSION}")
 
